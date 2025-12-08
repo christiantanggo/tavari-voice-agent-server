@@ -4,7 +4,7 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 import http from 'http';
 import dotenv from 'dotenv';
 
@@ -386,7 +386,7 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
 /**
  * WebSocket server for Telnyx media streaming
  */
-const wss = new WebSocket.Server({ 
+const wss = new WebSocketServer({ 
   server: server,
   path: '/media-stream-ws'
 });

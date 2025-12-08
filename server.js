@@ -425,6 +425,13 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             }
             break;
           
+          case 'response.audio_transcript.delta':
+            // Text transcript while audio is being generated
+            if (message.delta) {
+              process.stdout.write(message.delta);
+            }
+            break;
+          
           case 'response.audio.done':
             console.log(`🎵 Audio response complete for ${callId}`);
             break;
@@ -622,9 +629,9 @@ wss.on('connection', (ws, req) => {
             type: 'input_audio_buffer.append',
             audio: audioBase64
           }));
-          // Log occasionally to confirm audio is being sent (every 50th chunk)
-          if (Math.random() < 0.02) {
-            console.log(`📤 Sent ${audioBuffer.length} bytes to OpenAI (${activeCallId})`);
+          // Log every 20th chunk to confirm audio is being sent
+          if (Math.random() < 0.05) {
+            console.log(`📤 Sent ${audioBuffer.length} bytes resampled audio to OpenAI (${activeCallId})`);
           }
         } catch (error) {
           console.error(`❌ Error sending audio to OpenAI for ${activeCallId}:`, error.message);

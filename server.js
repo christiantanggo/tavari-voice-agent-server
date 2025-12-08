@@ -239,7 +239,8 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
     sessions.set(callId, {
       openaiWs: ws,
       callControlId: callControlId,
-      startedAt: new Date()
+      startedAt: new Date(),
+      sessionReady: false // Track if session is configured
     });
 
     // WebSocket event handlers
@@ -254,10 +255,10 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           instructions: 'You are a helpful AI assistant. Be concise and natural in conversation.',
           voice: 'alloy',
           input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
           input_audio_transcription: {
             model: 'whisper-1'
           },
+          output_audio_format: 'pcm16',
           turn_detection: {
             type: 'server_vad',
             threshold: 0.5,
@@ -268,16 +269,6 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           max_response_output_tokens: 4096
         }
       }));
-
-      // Send greeting
-      const greeting = 'Hello, thank you for calling. How can I help you today?';
-      ws.send(JSON.stringify({
-        type: 'response.create',
-        response: {
-          modalities: ['text'],
-          instructions: greeting
-        }
-      }));
     });
 
     ws.on('message', (data) => {
@@ -285,6 +276,25 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
         const message = JSON.parse(data.toString());
         
         switch (message.type) {
+          case 'session.updated':
+            // Session is now ready
+            console.log(`✅ OpenAI session configured for ${callId}`);
+            const session = sessions.get(callId);
+            if (session) {
+              session.sessionReady = true;
+              
+              // Send greeting now that session is ready
+              const greeting = 'Hello, thank you for calling. How can I help you today?';
+              ws.send(JSON.stringify({
+                type: 'response.create',
+                response: {
+                  modalities: ['text'],
+                  instructions: greeting
+                }
+              }));
+            }
+            break;
+          
           case 'response.audio_transcript.delta':
             if (message.delta) {
               process.stdout.write(message.delta);
@@ -443,16 +453,36 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // Telnyx sends audio as binary data (PCM)
-      // Convert to base64 for OpenAI
-      const audioBase64 = data.toString('base64');
+      // Wait for session to be ready before sending audio
+      if (!session.sessionReady) {
+        console.log(`⏳ Waiting for OpenAI session to be ready for ${activeCallId}...`);
+        return;
+      }
+
+      // Telnyx sends audio as binary data (PCM, typically 8kHz mono)
+      // Convert Buffer to base64 for OpenAI
+      // OpenAI expects base64-encoded PCM16 at 24kHz mono
+      // Note: We're sending 8kHz from Telnyx - OpenAI might reject it
+      // TODO: May need to resample from 8kHz to 24kHz
+      const audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      
+      // Validate buffer is not empty
+      if (audioBuffer.length === 0) {
+        return;
+      }
+      
+      const audioBase64 = audioBuffer.toString('base64');
       
       // Send to OpenAI Realtime API
       if (session.openaiWs.readyState === WebSocket.OPEN) {
-        session.openaiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: audioBase64
-        }));
+        try {
+          session.openaiWs.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: audioBase64
+          }));
+        } catch (error) {
+          console.error(`❌ Error sending audio to OpenAI for ${activeCallId}:`, error.message);
+        }
       }
     } catch (error) {
       console.error('❌ Error processing Telnyx audio:', error);

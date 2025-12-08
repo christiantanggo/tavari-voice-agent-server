@@ -265,22 +265,23 @@ async function answerCall(callControlId) {
 async function startMediaStream(callControlId) {
   try {
     // Get Railway public domain (Railway sets this automatically)
-    let baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
+    let base = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
     
-    // Ensure URL has https:// protocol (Telnyx requires full URL with protocol)
-    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-      baseUrl = `https://${baseUrl}`;
+    // Ensure it always begins with https:// (Telnyx REQUIRES full URL with protocol)
+    if (!base.startsWith('http://') && !base.startsWith('https://')) {
+      base = `https://${base}`;
     }
     
     // Convert http:// to https:// for production (Railway uses HTTPS)
-    if (baseUrl.startsWith('http://') && (baseUrl.includes('railway.app') || baseUrl.includes('railway.tech'))) {
-      baseUrl = baseUrl.replace('http://', 'https://');
+    if (base.startsWith('http://') && (base.includes('railway.app') || base.includes('railway.tech'))) {
+      base = base.replace('http://', 'https://');
     }
     
     // Telnyx requires WebSocket URL (wss://) for media streaming
-    const wsUrl = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+    const wsUrl = base.replace('https://', 'wss://').replace('http://', 'ws://');
     // Include call_id in query string to help identify the connection
     const webhookUrl = `${wsUrl}/media-stream-ws?call_id=${callControlId}`;
+    console.log(`STREAM URL => ${webhookUrl}`);
     console.log(`🎵 Starting media stream with WebSocket URL: ${webhookUrl}`);
     
     const response = await axios.post(

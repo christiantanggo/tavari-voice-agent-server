@@ -8,6 +8,47 @@ import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import dotenv from 'dotenv';
 
+/**
+ * Resample PCM16 audio from 8kHz to 24kHz using linear interpolation
+ * @param {Buffer} inputBuffer - Input PCM16 audio buffer (8kHz, 16-bit, mono)
+ * @returns {Buffer} - Resampled PCM16 audio buffer (24kHz, 16-bit, mono)
+ */
+function resample8kHzTo24kHz(inputBuffer) {
+  // Input: 8kHz = 8000 samples/second
+  // Output: 24kHz = 24000 samples/second
+  // Ratio: 24/8 = 3x upsampling
+  
+  const inputSamples = inputBuffer.length / 2; // 16-bit = 2 bytes per sample
+  const outputSamples = inputSamples * 3; // 3x upsampling
+  const outputBuffer = Buffer.allocUnsafe(outputSamples * 2); // 2 bytes per sample
+  
+  for (let i = 0; i < outputSamples; i++) {
+    // Calculate position in input buffer (0 to inputSamples-1)
+    const inputPos = i / 3;
+    const inputIndex = Math.floor(inputPos);
+    const fraction = inputPos - inputIndex;
+    
+    // Get two adjacent samples for interpolation
+    const sample1Index = inputIndex * 2;
+    const sample2Index = Math.min((inputIndex + 1) * 2, inputBuffer.length - 2);
+    
+    // Read 16-bit signed integers (little-endian)
+    const sample1 = inputBuffer.readInt16LE(sample1Index);
+    const sample2 = inputBuffer.readInt16LE(sample2Index);
+    
+    // Linear interpolation
+    const interpolated = Math.round(sample1 + (sample2 - sample1) * fraction);
+    
+    // Clamp to 16-bit signed range
+    const clamped = Math.max(-32768, Math.min(32767, interpolated));
+    
+    // Write to output buffer (little-endian)
+    outputBuffer.writeInt16LE(clamped, i * 2);
+  }
+  
+  return outputBuffer;
+}
+
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
@@ -507,12 +548,19 @@ wss.on('connection', (ws, req) => {
       }
 
       // Telnyx sends audio as binary data (PCM16, 8kHz mono, 16-bit little-endian)
-      // OpenAI Realtime expects PCM16 at 24kHz, but we'll try sending 8kHz and see if it works
-      // If not, we'll need to resample
-      const audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      // OpenAI Realtime requires PCM16 at 24kHz, so we need to resample
+      let audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       
       // Validate buffer is not empty
       if (audioBuffer.length === 0) {
+        return;
+      }
+      
+      // Resample from 8kHz to 24kHz
+      try {
+        audioBuffer = resample8kHzTo24kHz(audioBuffer);
+      } catch (error) {
+        console.error(`❌ Error resampling audio for ${activeCallId}:`, error);
         return;
       }
       

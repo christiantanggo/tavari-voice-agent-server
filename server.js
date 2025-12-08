@@ -424,12 +424,15 @@ const wsCallMap = new Map();
 
 wss.on('connection', (ws, req) => {
   console.log('🔌 Telnyx WebSocket connection established');
+  console.log(`🔍 WebSocket URL: ${req.url}`);
+  console.log(`🔍 WebSocket headers:`, JSON.stringify(req.headers, null, 2));
   
   // Try to extract call ID from query string
   let callId = null;
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     callId = url.searchParams.get('call_id');
+    console.log(`🔍 Extracted call_id from URL: ${callId}`);
   } catch (error) {
     console.warn('⚠️  Could not parse WebSocket URL:', error);
   }
@@ -440,7 +443,18 @@ wss.on('connection', (ws, req) => {
   
   console.log(`🎵 Telnyx media stream WebSocket connected (call: ${callId || 'pending'})`);
 
+  // Send initial message to Telnyx (some WebSocket protocols require this)
+  // Telnyx might expect a specific format - try sending a simple acknowledgment
+  try {
+    // Some protocols expect binary, others JSON - try binary first (empty buffer as keepalive)
+    // Actually, let's not send anything until we receive data from Telnyx
+    console.log(`✅ WebSocket ready to receive audio from Telnyx`);
+  } catch (error) {
+    console.error('❌ Error in WebSocket connection setup:', error);
+  }
+
   ws.on('message', (data) => {
+    console.log(`📥 Received ${data.length} bytes from Telnyx WebSocket`);
     try {
       const wsInfo = wsCallMap.get(ws);
       let activeCallId = wsInfo?.callId;
@@ -508,10 +522,10 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     const wsInfo = wsCallMap.get(ws);
     const callId = wsInfo?.callId;
-    console.log(`🔌 Telnyx WebSocket closed (call: ${callId || 'unknown'})`);
+    console.log(`🔌 Telnyx WebSocket closed (call: ${callId || 'unknown'}, code: ${code}, reason: ${reason?.toString() || 'none'})`);
     
     if (callId) {
       const session = sessions.get(callId);
@@ -527,6 +541,10 @@ wss.on('connection', (ws, req) => {
     const wsInfo = wsCallMap.get(ws);
     const callId = wsInfo?.callId || 'unknown';
     console.error(`❌ Telnyx WebSocket error (call: ${callId}):`, error);
+  });
+
+  ws.on('pong', () => {
+    console.log(`🏓 Received pong from Telnyx WebSocket`);
   });
 });
 

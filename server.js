@@ -18,7 +18,12 @@ function resample8kHzTo24kHz(inputBuffer) {
   // Output: 24kHz = 24000 samples/second
   // Ratio: 24/8 = 3x upsampling
   
-  const inputSamples = inputBuffer.length / 2; // 16-bit = 2 bytes per sample
+  // Ensure buffer length is even (16-bit samples = 2 bytes each)
+  if (inputBuffer.length < 2) {
+    return Buffer.alloc(0);
+  }
+  
+  const inputSamples = Math.floor(inputBuffer.length / 2); // 16-bit = 2 bytes per sample
   const outputSamples = inputSamples * 3; // 3x upsampling
   const outputBuffer = Buffer.allocUnsafe(outputSamples * 2); // 2 bytes per sample
   
@@ -28,9 +33,29 @@ function resample8kHzTo24kHz(inputBuffer) {
     const inputIndex = Math.floor(inputPos);
     const fraction = inputPos - inputIndex;
     
+    // Ensure we don't go beyond buffer bounds
+    if (inputIndex >= inputSamples - 1) {
+      // Use last sample if we're at the end
+      const lastSampleIndex = (inputSamples - 1) * 2;
+      if (lastSampleIndex + 1 < inputBuffer.length) {
+        const lastSample = inputBuffer.readInt16LE(lastSampleIndex);
+        outputBuffer.writeInt16LE(lastSample, i * 2);
+      }
+      continue;
+    }
+    
     // Get two adjacent samples for interpolation
     const sample1Index = inputIndex * 2;
-    const sample2Index = Math.min((inputIndex + 1) * 2, inputBuffer.length - 2);
+    const sample2Index = (inputIndex + 1) * 2;
+    
+    // Ensure indices are within bounds
+    if (sample1Index + 1 >= inputBuffer.length || sample2Index + 1 >= inputBuffer.length) {
+      // Fallback: use last available sample
+      const lastSampleIndex = Math.max(0, Math.floor((inputBuffer.length - 2) / 2) * 2);
+      const lastSample = inputBuffer.readInt16LE(lastSampleIndex);
+      outputBuffer.writeInt16LE(lastSample, i * 2);
+      continue;
+    }
     
     // Read 16-bit signed integers (little-endian)
     const sample1 = inputBuffer.readInt16LE(sample1Index);

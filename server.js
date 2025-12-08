@@ -248,17 +248,19 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
       console.log(`✅ OpenAI Realtime WebSocket connected for ${callId}`);
       
       // Send session configuration
+      // Try g711_ulaw (8kHz) since Telnyx sends 8kHz audio
+      // If this doesn't work, we'll need to resample to 24kHz PCM16
       ws.send(JSON.stringify({
         type: 'session.update',
         session: {
           modalities: ['text', 'audio'],
           instructions: 'You are a helpful AI assistant. Be concise and natural in conversation.',
           voice: 'alloy',
-          input_audio_format: 'pcm16',
+          input_audio_format: 'g711_ulaw', // 8kHz format that OpenAI supports
           input_audio_transcription: {
             model: 'whisper-1'
           },
-          output_audio_format: 'pcm16',
+          output_audio_format: 'pcm16', // Output stays PCM16
           turn_detection: {
             type: 'server_vad',
             threshold: 0.5,

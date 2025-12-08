@@ -264,19 +264,20 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
       console.log(`✅ OpenAI Realtime WebSocket connected for ${callId}`);
       
       // Send session configuration
-      // Try g711_ulaw (8kHz) since Telnyx sends 8kHz audio
-      // If this doesn't work, we'll need to resample to 24kHz PCM16
+      // Telnyx media streaming sends PCM16 at 8kHz (based on their docs)
+      // OpenAI Realtime requires PCM16 at 24kHz, so we need to configure for 24kHz
+      // However, we'll try pcm16 first and see if OpenAI can handle 8kHz
       ws.send(JSON.stringify({
         type: 'session.update',
         session: {
           modalities: ['text', 'audio'],
           instructions: 'You are a helpful AI assistant. Be concise and natural in conversation.',
           voice: 'alloy',
-          input_audio_format: 'g711_ulaw', // 8kHz format that OpenAI supports
+          input_audio_format: 'pcm16', // Try PCM16 - OpenAI expects 24kHz but might accept 8kHz
           input_audio_transcription: {
             model: 'whisper-1'
           },
-          output_audio_format: 'pcm16', // Output stays PCM16
+          output_audio_format: 'pcm16', // Output PCM16
           turn_detection: {
             type: 'server_vad',
             threshold: 0.5,
@@ -511,9 +512,9 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // Telnyx sends audio as binary data (PCM, typically 8kHz mono)
-      // Convert Buffer to base64 for OpenAI
-      // OpenAI expects base64-encoded audio in the format we configured (g711_ulaw for 8kHz)
+      // Telnyx sends audio as binary data (PCM16, 8kHz mono, 16-bit little-endian)
+      // OpenAI Realtime expects PCM16 at 24kHz, but we'll try sending 8kHz and see if it works
+      // If not, we'll need to resample
       const audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       
       // Validate buffer is not empty
@@ -521,6 +522,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       
+      // Convert to base64 for OpenAI
       const audioBase64 = audioBuffer.toString('base64');
       
       // Send to OpenAI Realtime API

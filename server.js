@@ -267,9 +267,14 @@ async function startMediaStream(callControlId) {
     // Get Railway public domain (Railway sets this automatically)
     let baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
     
-    // Ensure URL has https:// protocol (required by Telnyx)
+    // Ensure URL has https:// protocol (Telnyx requires full URL with protocol)
     if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
       baseUrl = `https://${baseUrl}`;
+    }
+    
+    // Convert http:// to https:// for production (Railway uses HTTPS)
+    if (baseUrl.startsWith('http://') && (baseUrl.includes('railway.app') || baseUrl.includes('railway.tech'))) {
+      baseUrl = baseUrl.replace('http://', 'https://');
     }
     
     // Telnyx requires WebSocket URL (wss://) for media streaming
@@ -368,15 +373,34 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (session) {
               session.sessionReady = true;
               
-              // Send greeting now that session is ready
+              // Send greeting as audio message
               const greeting = 'Hello, thank you for calling. How can I help you today?';
+              
+              // Create conversation item with audio
+              ws.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'message',
+                  role: 'assistant',
+                  content: [
+                    {
+                      type: 'input_text',
+                      text: greeting
+                    }
+                  ],
+                  modalities: ['audio']
+                }
+              }));
+              
+              // Request audio response
               ws.send(JSON.stringify({
                 type: 'response.create',
                 response: {
-                  modalities: ['text'],
-                  instructions: greeting
+                  modalities: ['audio']
                 }
               }));
+              
+              console.log(`🎤 Sent greeting and requested audio response for ${callId}`);
             }
             break;
           
@@ -391,14 +415,19 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.audio.delta':
-            // Audio chunk from OpenAI
+            // Audio chunk from OpenAI - this is what we need!
             if (message.delta) {
               const audioBuffer = Buffer.from(message.delta, 'base64');
               sendAudioToTelnyx(callId, audioBuffer);
-              // Log occasionally to confirm audio is being received
-              if (Math.random() < 0.1) {
-                console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
-              }
+              // Log every chunk to confirm audio is being received
+              console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
+            }
+            break;
+          
+          case 'response.audio_transcript.delta':
+            // Text transcript while audio is being generated
+            if (message.delta) {
+              process.stdout.write(message.delta);
             }
             break;
           

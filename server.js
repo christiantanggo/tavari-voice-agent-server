@@ -405,6 +405,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.audio_transcript.delta':
+            // Text transcript while audio is being generated
             if (message.delta) {
               process.stdout.write(message.delta);
             }
@@ -421,13 +422,6 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
               sendAudioToTelnyx(callId, audioBuffer);
               // Log every chunk to confirm audio is being received
               console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
-            }
-            break;
-          
-          case 'response.audio_transcript.delta':
-            // Text transcript while audio is being generated
-            if (message.delta) {
-              process.stdout.write(message.delta);
             }
             break;
           

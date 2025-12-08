@@ -4,7 +4,7 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import dotenv from 'dotenv';
 

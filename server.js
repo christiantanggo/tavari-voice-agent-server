@@ -362,16 +362,10 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           
           default:
             // Log unknown message types occasionally for debugging
-            if (Math.random() < 0.01) {
+            if (message.type && !message.type.startsWith('session.') && Math.random() < 0.01) {
               console.log(`ℹ️  OpenAI message type: ${message.type} for ${callId}`);
             }
             break;
-          
-          default:
-            // Unhandled event types - log for debugging
-            if (message.type && !message.type.startsWith('session.')) {
-              // console.log(`ℹ️  Unhandled OpenAI event: ${message.type}`);
-            }
         }
       } catch (error) {
         console.error(`❌ Error parsing OpenAI message for ${callId}:`, error);

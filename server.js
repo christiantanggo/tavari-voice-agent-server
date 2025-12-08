@@ -392,15 +392,22 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
                 }
               }));
               
-              // Request audio response (OpenAI will generate audio from the conversation item)
-              ws.send(JSON.stringify({
+              console.log(`🎤 Sent greeting for ${callId}`);
+            }
+            break;
+          
+          case 'conversation.item.created':
+            // Conversation item was created, now request audio response
+            console.log(`✅ Conversation item created for ${callId}`);
+            const sessionForResponse = sessions.get(callId);
+            if (sessionForResponse && sessionForResponse.openaiWs) {
+              sessionForResponse.openaiWs.send(JSON.stringify({
                 type: 'response.create',
                 response: {
                   modalities: ['audio', 'text'] // Must include both audio and text
                 }
               }));
-              
-              console.log(`🎤 Sent greeting and requested audio+text response for ${callId}`);
+              console.log(`🎤 Requested audio+text response for ${callId}`);
             }
             break;
           
@@ -422,13 +429,6 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
               sendAudioToTelnyx(callId, audioBuffer);
               // Log every chunk to confirm audio is being received
               console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
-            }
-            break;
-          
-          case 'response.audio_transcript.delta':
-            // Text transcript while audio is being generated
-            if (message.delta) {
-              process.stdout.write(message.delta);
             }
             break;
           
@@ -632,6 +632,13 @@ wss.on('connection', (ws, req) => {
           // Log every 20th chunk to confirm audio is being sent
           if (Math.random() < 0.05) {
             console.log(`📤 Sent ${audioBuffer.length} bytes resampled audio to OpenAI (${activeCallId})`);
+          }
+          
+          // Commit audio buffer periodically (every 10 chunks) to trigger processing
+          if (Math.random() < 0.1) {
+            session.openaiWs.send(JSON.stringify({
+              type: 'input_audio_buffer.commit'
+            }));
           }
         } catch (error) {
           console.error(`❌ Error sending audio to OpenAI for ${activeCallId}:`, error.message);

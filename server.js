@@ -208,6 +208,9 @@ async function startMediaStream(callControlId) {
     return response.data;
   } catch (error) {
     console.error('❌ Error starting media stream:', error.response?.data || error.message);
+    if (error.response?.data?.errors) {
+      console.error('❌ Telnyx errors:', JSON.stringify(error.response.data.errors, null, 2));
+    }
     throw error;
   }
 }

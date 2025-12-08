@@ -320,7 +320,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.audio_transcript.done':
-            console.log(`\n🤖 AI said: ${message.transcript}`);
+            console.log(`\n🤖 AI transcript: ${message.transcript}`);
             break;
           
           case 'response.audio.delta':
@@ -328,11 +328,19 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (message.delta) {
               const audioBuffer = Buffer.from(message.delta, 'base64');
               sendAudioToTelnyx(callId, audioBuffer);
+              // Log occasionally to confirm audio is being received
+              if (Math.random() < 0.1) {
+                console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
+              }
             }
             break;
           
           case 'response.audio.done':
             console.log(`🎵 Audio response complete for ${callId}`);
+            break;
+          
+          case 'response.done':
+            console.log(`✅ Response complete for ${callId}`);
             break;
           
           case 'conversation.item.input_audio_buffer.speech_started':
@@ -343,8 +351,19 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             console.log(`👤 User stopped speaking for ${callId}`);
             break;
           
+          case 'conversation.item.input_audio_buffer.committed':
+            console.log(`✅ Audio buffer committed for ${callId}`);
+            break;
+          
           case 'error':
-            console.error(`❌ OpenAI error for ${callId}:`, message);
+            console.error(`❌ OpenAI error for ${callId}:`, JSON.stringify(message, null, 2));
+            break;
+          
+          default:
+            // Log unknown message types occasionally for debugging
+            if (Math.random() < 0.01) {
+              console.log(`ℹ️  OpenAI message type: ${message.type} for ${callId}`);
+            }
             break;
           
           default:
@@ -494,9 +513,7 @@ wss.on('connection', (ws, req) => {
 
       // Telnyx sends audio as binary data (PCM, typically 8kHz mono)
       // Convert Buffer to base64 for OpenAI
-      // OpenAI expects base64-encoded PCM16 at 24kHz mono
-      // Note: We're sending 8kHz from Telnyx - OpenAI might reject it
-      // TODO: May need to resample from 8kHz to 24kHz
+      // OpenAI expects base64-encoded audio in the format we configured (g711_ulaw for 8kHz)
       const audioBuffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       
       // Validate buffer is not empty
@@ -513,9 +530,15 @@ wss.on('connection', (ws, req) => {
             type: 'input_audio_buffer.append',
             audio: audioBase64
           }));
+          // Log occasionally to confirm audio is being sent (every 50th chunk)
+          if (Math.random() < 0.02) {
+            console.log(`📤 Sent ${audioBuffer.length} bytes to OpenAI (${activeCallId})`);
+          }
         } catch (error) {
           console.error(`❌ Error sending audio to OpenAI for ${activeCallId}:`, error.message);
         }
+      } else {
+        console.warn(`⚠️  OpenAI WebSocket not open for ${activeCallId} (state: ${session.openaiWs.readyState})`);
       }
     } catch (error) {
       console.error('❌ Error processing Telnyx audio:', error);

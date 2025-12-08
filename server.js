@@ -671,6 +671,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🎵 Media stream WebSocket: wss://${PUBLIC_URL.replace('http://', '').replace('https://', '')}/media-stream-ws`);
   console.log(`❤️  Health check: GET ${PUBLIC_URL}/health`);
   console.log(`\n✅ Ready to receive calls!`);
+  console.log(`🔧 Environment: RAILWAY_PUBLIC_DOMAIN=${process.env.RAILWAY_PUBLIC_DOMAIN || 'not set'}`);
 });
 
 // Graceful shutdown

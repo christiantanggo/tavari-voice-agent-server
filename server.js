@@ -180,7 +180,16 @@ async function answerCall(callControlId) {
  */
 async function startMediaStream(callControlId) {
   try {
-    const webhookUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`}/media-stream`;
+    // Get Railway public domain (Railway sets this automatically)
+    let baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
+    
+    // Ensure URL has https:// protocol (required by Telnyx)
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      baseUrl = `https://${baseUrl}`;
+    }
+    
+    const webhookUrl = `${baseUrl}/media-stream`;
+    console.log(`🎵 Starting media stream with URL: ${webhookUrl}`);
     
     const response = await axios.post(
       `https://api.telnyx.com/v2/calls/${callControlId}/actions/streaming_start`,

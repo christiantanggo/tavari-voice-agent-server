@@ -110,7 +110,7 @@ async function handleCallInitiated(payload, callId) {
 }
 
 /**
- * Handle call answered - Start media streaming
+ * Handle call answered - Start media streaming (wait for OpenAI session to be ready)
  */
 async function handleCallAnswered(payload, callId) {
   try {
@@ -118,7 +118,23 @@ async function handleCallAnswered(payload, callId) {
     
     console.log(`✅ Call answered: ${callControlId}`);
 
-    // Start media streaming to receive audio
+    // Wait for OpenAI session to be ready before starting media stream
+    const maxWait = 10000; // 10 seconds max wait
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < maxWait) {
+      const session = sessions.get(callId);
+      if (session && session.sessionReady) {
+        console.log(`✅ OpenAI session ready, starting media stream for ${callId}`);
+        await startMediaStream(callControlId);
+        return;
+      }
+      // Wait 100ms before checking again
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // If session not ready after max wait, start stream anyway
+    console.log(`⚠️  OpenAI session not ready after ${maxWait}ms, starting media stream anyway`);
     await startMediaStream(callControlId);
 
   } catch (error) {
@@ -457,7 +473,8 @@ wss.on('connection', (ws, req) => {
 
       // Wait for session to be ready before sending audio
       if (!session.sessionReady) {
-        console.log(`⏳ Waiting for OpenAI session to be ready for ${activeCallId}...`);
+        // Don't log every time - too noisy
+        // console.log(`⏳ Waiting for OpenAI session to be ready for ${activeCallId}...`);
         return;
       }
 

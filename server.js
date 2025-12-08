@@ -376,7 +376,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
               // Send greeting as audio message
               const greeting = 'Hello, thank you for calling. How can I help you today?';
               
-              // Create conversation item with audio
+              // Create conversation item (NO modalities here - that's not a valid parameter)
               ws.send(JSON.stringify({
                 type: 'conversation.item.create',
                 item: {
@@ -387,20 +387,19 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
                       type: 'input_text',
                       text: greeting
                     }
-                  ],
-                  modalities: ['audio']
+                  ]
                 }
               }));
               
-              // Request audio response
+              // Request audio + text response (OpenAI requires both, not just audio)
               ws.send(JSON.stringify({
                 type: 'response.create',
                 response: {
-                  modalities: ['audio']
+                  modalities: ['audio', 'text'] // Must include both audio and text
                 }
               }));
               
-              console.log(`🎤 Sent greeting and requested audio response for ${callId}`);
+              console.log(`🎤 Sent greeting and requested audio+text response for ${callId}`);
             }
             break;
           

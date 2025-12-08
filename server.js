@@ -443,12 +443,12 @@ wss.on('connection', (ws, req) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Tavari Voice Agent server running on port ${PORT}`);
   const PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
 
   console.log(`📞 Webhook: POST ${PUBLIC_URL}/webhook`);
-  console.log(`🎵 Media stream: POST ${PUBLIC_URL}/media-stream`);
+  console.log(`🎵 Media stream WebSocket: wss://${PUBLIC_URL.replace('http://', '').replace('https://', '')}/media-stream-ws`);
   console.log(`❤️  Health check: GET ${PUBLIC_URL}/health`);
   console.log(`\n✅ Ready to receive calls!`);
 });

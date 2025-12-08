@@ -192,7 +192,8 @@ async function startMediaStream(callControlId) {
     
     // Telnyx requires WebSocket URL (wss://) for media streaming
     const wsUrl = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-    const webhookUrl = `${wsUrl}/media-stream-ws`;
+    // Include call_id in query string to help identify the connection
+    const webhookUrl = `${wsUrl}/media-stream-ws?call_id=${callControlId}`;
     console.log(`🎵 Starting media stream with WebSocket URL: ${webhookUrl}`);
     
     const response = await axios.post(
@@ -390,31 +391,60 @@ const wss = new WebSocket.Server({
   path: '/media-stream-ws'
 });
 
+// Map WebSocket connections to call IDs
+const wsCallMap = new Map();
+
 wss.on('connection', (ws, req) => {
   console.log('🔌 Telnyx WebSocket connection established');
   
-  // Extract call ID from query string or headers
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const callId = url.searchParams.get('call_id') || 'unknown';
-  
-  console.log(`🎵 Telnyx media stream WebSocket connected for call: ${callId}`);
-  
-  // Store WebSocket in session
-  const session = sessions.get(callId);
-  if (session) {
-    session.telnyxWs = ws;
+  // Try to extract call ID from query string
+  let callId = null;
+  try {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    callId = url.searchParams.get('call_id');
+  } catch (error) {
+    console.warn('⚠️  Could not parse WebSocket URL:', error);
   }
+  
+  // Store WebSocket with a temporary ID if we don't have call_id yet
+  const wsId = `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  wsCallMap.set(ws, { callId, wsId });
+  
+  console.log(`🎵 Telnyx media stream WebSocket connected (call: ${callId || 'pending'})`);
 
   ws.on('message', (data) => {
     try {
-      // Telnyx sends audio as binary data (PCM)
-      const session = sessions.get(callId);
-      if (!session || !session.openaiWs) {
-        console.warn(`⚠️  No OpenAI session for ${callId}`);
+      const wsInfo = wsCallMap.get(ws);
+      let activeCallId = wsInfo?.callId;
+      
+      // If we don't have call_id yet, try to find it from active sessions
+      if (!activeCallId) {
+        // Telnyx might send call info in first message, or we match by timing
+        // For now, try to find the most recent session without a WebSocket
+        for (const [id, session] of sessions.entries()) {
+          if (!session.telnyxWs) {
+            activeCallId = id;
+            session.telnyxWs = ws;
+            wsInfo.callId = id;
+            console.log(`🔗 Matched WebSocket to call: ${id}`);
+            break;
+          }
+        }
+      }
+      
+      if (!activeCallId) {
+        console.warn(`⚠️  No call ID for WebSocket message`);
         return;
       }
 
-      // Convert binary audio to base64 for OpenAI
+      const session = sessions.get(activeCallId);
+      if (!session || !session.openaiWs) {
+        console.warn(`⚠️  No OpenAI session for ${activeCallId}`);
+        return;
+      }
+
+      // Telnyx sends audio as binary data (PCM)
+      // Convert to base64 for OpenAI
       const audioBase64 = data.toString('base64');
       
       // Send to OpenAI Realtime API
@@ -430,15 +460,24 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    console.log(`🔌 Telnyx WebSocket closed for ${callId}`);
-    const session = sessions.get(callId);
-    if (session) {
-      session.telnyxWs = null;
+    const wsInfo = wsCallMap.get(ws);
+    const callId = wsInfo?.callId;
+    console.log(`🔌 Telnyx WebSocket closed (call: ${callId || 'unknown'})`);
+    
+    if (callId) {
+      const session = sessions.get(callId);
+      if (session) {
+        session.telnyxWs = null;
+      }
     }
+    
+    wsCallMap.delete(ws);
   });
 
   ws.on('error', (error) => {
-    console.error(`❌ Telnyx WebSocket error for ${callId}:`, error);
+    const wsInfo = wsCallMap.get(ws);
+    const callId = wsInfo?.callId || 'unknown';
+    console.error(`❌ Telnyx WebSocket error (call: ${callId}):`, error);
   });
 });
 

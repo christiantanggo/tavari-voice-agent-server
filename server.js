@@ -264,8 +264,7 @@ async function answerCall(callControlId) {
  */
 async function startMediaStream(callControlId) {
   try {
-    // Get Railway public domain (Railway sets this automatically)
-    let base = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `http://localhost:${PORT}`;
+    let base = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
     
     // Ensure valid https:// URL (Telnyx REQUIRES full URL with protocol)
     if (!base.startsWith('http')) {
@@ -281,13 +280,14 @@ async function startMediaStream(callControlId) {
     const wsUrl = base.replace('https://', 'wss://');
     // Include call_id in query string to help identify the connection
     const webhookUrl = `${wsUrl}/media-stream-ws?call_id=${callControlId}`;
-    console.log(`STREAM URL => ${webhookUrl}`);
+    
+    console.log(`🚀 Using media stream URL: ${webhookUrl}`);
     
     const response = await axios.post(
       `https://api.telnyx.com/v2/calls/${callControlId}/actions/streaming_start`,
       {
         stream_url: webhookUrl,
-        stream_track: 'inbound_track' // Receive inbound audio (caller's voice)
+        stream_track: 'both_tracks' // Receive both inbound and outbound audio
       },
       {
         headers: {
@@ -296,6 +296,7 @@ async function startMediaStream(callControlId) {
         }
       }
     );
+    
     console.log(`🎵 Media streaming started: ${callControlId}`);
     return response.data;
   } catch (error) {

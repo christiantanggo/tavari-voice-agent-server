@@ -617,25 +617,9 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       return;
     }
 
-    // Fallback to HTTP API (base64 encoded)
-    if (session.callControlId) {
-      const audioBase64 = audioBuffer.toString('base64');
-      await axios.post(
-        `https://api.telnyx.com/v2/calls/${session.callControlId}/actions/speak`,
-        {
-          payload: audioBase64,
-          payload_type: 'base64',
-          voice: 'female'
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${TELNYX_API_KEY}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      console.log(`📤 Sent ${audioBuffer.length} bytes audio to Telnyx HTTP API (${callId})`);
-    }
+    // Fallback to HTTP API - but WebSocket should always be available
+    // If we reach here, log a warning
+    console.warn(`⚠️  Telnyx WebSocket not available for ${callId}, cannot send audio via HTTP API (requires WebSocket for media streaming)`);
 
   } catch (error) {
     console.error(`❌ Error sending audio to Telnyx for ${callId}:`, error.response?.data || error.message);

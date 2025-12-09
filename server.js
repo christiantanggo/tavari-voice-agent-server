@@ -740,6 +740,21 @@ wss.on('connection', (ws, req) => {
         if (session && !session.telnyxWs) {
           session.telnyxWs = ws;
           console.log(`🔗 Stored Telnyx WebSocket in session for ${activeCallId}`);
+          
+          // If there's queued audio, flush it now
+          if (session.audioQueue && session.audioQueue.length > 0 && ws.readyState === WebSocket.OPEN) {
+            console.log(`📤 Flushing ${session.audioQueue.length} queued audio chunks for ${activeCallId}`);
+            const queue = session.audioQueue;
+            session.audioQueue = [];
+            queue.forEach(queuedBuffer => {
+              const queuedPayload = queuedBuffer.toString('base64');
+              const queuedMessage = JSON.stringify({
+                event: 'media',
+                media: { payload: queuedPayload }
+              });
+              ws.send(queuedMessage);
+            });
+          }
         }
       }
       

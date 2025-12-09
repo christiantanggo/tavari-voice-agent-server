@@ -481,16 +481,26 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.audio.delta':
-            // Audio chunk from OpenAI - this is what we need!
+          case 'response.output_audio.delta':
+            // Audio chunk from OpenAI - SEND THIS TO TELNYX!
             if (message.delta) {
               try {
                 const audioBuffer = Buffer.from(message.delta, 'base64');
                 console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
                 
-                // Resample 24kHz to 8kHz for Telnyx (sendAudioToTelnyx will handle sending)
+                // Resample 24kHz to 8kHz for Telnyx
                 const resampledAudio = resample24kHzTo8kHz(audioBuffer);
                 if (resampledAudio.length > 0) {
-                  sendAudioToTelnyx(callId, resampledAudio);
+                  // Send directly to Telnyx WebSocket if available
+                  const session = sessions.get(callId);
+                  if (session && session.telnyxWs && session.telnyxWs.readyState === WebSocket.OPEN) {
+                    session.telnyxWs.send(resampledAudio);
+                    console.log(`📤 Sent ${resampledAudio.length} bytes raw PCM audio to Telnyx WebSocket (${callId})`);
+                  } else {
+                    // Fallback to HTTP API
+                    console.warn(`⚠️  Telnyx WebSocket not available, using HTTP fallback for ${callId}`);
+                    sendAudioToTelnyx(callId, resampledAudio);
+                  }
                 }
               } catch (error) {
                 console.error(`❌ Error processing audio delta for ${callId}:`, error);
@@ -686,6 +696,13 @@ wss.on('connection', (ws, req) => {
             console.log(`🔗 Matched WebSocket to call: ${id}`);
             break;
           }
+        }
+      } else {
+        // We have call_id, make sure session has the WebSocket reference
+        const session = sessions.get(activeCallId);
+        if (session && !session.telnyxWs) {
+          session.telnyxWs = ws;
+          console.log(`🔗 Stored Telnyx WebSocket in session for ${activeCallId}`);
         }
       }
       

@@ -415,25 +415,8 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (session) {
               session.sessionReady = true;
               
-              // Send greeting as text message, then request audio response
-              const greeting = 'Hello, thank you for calling. How can I help you today?';
-              
-              // Create conversation item with text
-              ws.send(JSON.stringify({
-                type: 'conversation.item.create',
-                item: {
-                  type: 'message',
-                  role: 'assistant',
-                  content: [
-                    {
-                      type: 'text',
-                      text: greeting
-                    }
-                  ]
-                }
-              }));
-              
-              console.log(`🎤 Sent greeting text for ${callId}`);
+              // Don't send greeting as text - let OpenAI respond naturally to user input
+              // The greeting will come from OpenAI's first response to user audio
               
               // If we have a pending media stream start, do it now
               if (session.pendingMediaStart && session.pendingCallControlId) {

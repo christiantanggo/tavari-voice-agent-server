@@ -370,7 +370,8 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
       sessionReady: false, // Track if session is configured
       telnyxWs: null, // Will be set when Telnyx WebSocket connects
       pendingMediaStart: false, // Track if we need to start media stream when ready
-      hasActiveResponse: false // Track if there's an active response in progress
+      hasActiveResponse: false, // Track if there's an active response in progress
+      audioQueue: [] // Buffer audio until WebSocket is ready
     });
 
     // WebSocket event handlers
@@ -614,18 +615,34 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       
       session.telnyxWs.send(message);
       console.log(`📤 Sent ${audioBuffer.length} bytes audio to Telnyx WebSocket (${callId})`);
+      
+      // If there's queued audio, send it now
+      if (session.audioQueue && session.audioQueue.length > 0) {
+        console.log(`📤 Flushing ${session.audioQueue.length} queued audio chunks for ${callId}`);
+        const queue = session.audioQueue;
+        session.audioQueue = [];
+        queue.forEach(queuedBuffer => {
+          const queuedPayload = queuedBuffer.toString('base64');
+          const queuedMessage = JSON.stringify({
+            event: 'media',
+            media: { payload: queuedPayload }
+          });
+          session.telnyxWs.send(queuedMessage);
+        });
+      }
       return;
     }
 
-    // WebSocket not available - log detailed info for debugging
-    if (!session.telnyxWs) {
-      console.warn(`⚠️  Telnyx WebSocket not stored in session for ${callId}`);
-    } else if (session.telnyxWs.readyState !== WebSocket.OPEN) {
-      console.warn(`⚠️  Telnyx WebSocket not open for ${callId} (state: ${session.telnyxWs.readyState})`);
+    // WebSocket not available - buffer audio for later
+    if (!session.audioQueue) {
+      session.audioQueue = [];
     }
+    session.audioQueue.push(audioBuffer);
     
-    // Buffer audio if WebSocket not ready yet (optional - for now just log)
-    console.warn(`⚠️  Cannot send audio to Telnyx for ${callId} - WebSocket not ready`);
+    // Log occasionally to avoid spam
+    if (session.audioQueue.length === 1 || session.audioQueue.length % 10 === 0) {
+      console.log(`⏳ Buffering audio for ${callId} (${session.audioQueue.length} chunks) - WebSocket not ready`);
+    }
 
   } catch (error) {
     console.error(`❌ Error sending audio to Telnyx for ${callId}:`, error.response?.data || error.message);

@@ -513,15 +513,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
                 const resampledAudio = resample24kHzTo8kHz(audioBuffer);
                 if (resampledAudio.length > 0) {
                   // Send directly to Telnyx WebSocket if available
-                  const session = sessions.get(callId);
-                  if (session && session.telnyxWs && session.telnyxWs.readyState === WebSocket.OPEN) {
-                    session.telnyxWs.send(resampledAudio);
-                    console.log(`📤 Sent ${resampledAudio.length} bytes raw PCM audio to Telnyx WebSocket (${callId})`);
-                  } else {
-                    // Fallback to HTTP API
-                    console.warn(`⚠️  Telnyx WebSocket not available, using HTTP fallback for ${callId}`);
-                    sendAudioToTelnyx(callId, resampledAudio);
-                  }
+                  sendAudioToTelnyx(callId, resampledAudio);
                 }
               } catch (error) {
                 console.error(`❌ Error processing audio delta for ${callId}:`, error);

@@ -415,10 +415,10 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (session) {
               session.sessionReady = true;
               
-              // Send greeting as audio message
+              // Send greeting as text message, then request audio response
               const greeting = 'Hello, thank you for calling. How can I help you today?';
               
-              // Create conversation item with correct format (type must be 'text', not 'input_text')
+              // Create conversation item with text
               ws.send(JSON.stringify({
                 type: 'conversation.item.create',
                 item: {
@@ -426,14 +426,14 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
                   role: 'assistant',
                   content: [
                     {
-                      type: 'text', // OpenAI requires 'text', not 'input_text'
+                      type: 'text',
                       text: greeting
                     }
                   ]
                 }
               }));
               
-              console.log(`🎤 Sent greeting for ${callId}`);
+              console.log(`🎤 Sent greeting text for ${callId}`);
               
               // If we have a pending media stream start, do it now
               if (session.pendingMediaStart && session.pendingCallControlId) {
@@ -449,24 +449,32 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           
           case 'conversation.item.created':
             // Conversation item was created, now request audio response
-            console.log(`✅ Conversation item created for ${callId}`);
+            console.log(`✅ Conversation item created for ${callId}`, JSON.stringify(message).substring(0, 200));
             const sessionForResponse = sessions.get(callId);
             if (sessionForResponse && sessionForResponse.openaiWs) {
-              // Wait a tiny bit to ensure item is fully created
-              setTimeout(() => {
-                sessionForResponse.openaiWs.send(JSON.stringify({
-                  type: 'response.create',
-                  response: {
-                    modalities: ['audio', 'text'] // Must include both audio and text
-                  }
-                }));
-                console.log(`🎤 Requested audio+text response for ${callId}`);
-              }, 100);
+              // Request audio response immediately - don't wait
+              sessionForResponse.openaiWs.send(JSON.stringify({
+                type: 'response.create',
+                response: {
+                  modalities: ['audio', 'text'], // Must include both audio and text
+                  instructions: undefined // Don't override instructions
+                }
+              }));
+              console.log(`🎤 Requested audio+text response for ${callId}`);
             }
             break;
           
           case 'response.created':
-            console.log(`🎬 Response created for ${callId}`);
+            console.log(`🎬 Response created for ${callId}`, JSON.stringify(message).substring(0, 200));
+            // Response is created, audio should start flowing soon
+            break;
+          
+          case 'response.output_item.added':
+            console.log(`📦 Response output item added for ${callId}`);
+            break;
+          
+          case 'response.output_item.done':
+            console.log(`✅ Response output item done for ${callId}`);
             break;
           
           case 'response.audio_transcript.delta':

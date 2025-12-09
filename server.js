@@ -634,12 +634,7 @@ wss.on('connection', (ws, req) => {
             console.log(`📤 Sent ${audioBuffer.length} bytes resampled audio to OpenAI (${activeCallId})`);
           }
           
-          // Commit audio buffer periodically (every 10 chunks) to trigger processing
-          if (Math.random() < 0.1) {
-            session.openaiWs.send(JSON.stringify({
-              type: 'input_audio_buffer.commit'
-            }));
-          }
+          // DO NOT manually commit - server_vad turn detection handles this automatically
         } catch (error) {
           console.error(`❌ Error sending audio to OpenAI for ${activeCallId}:`, error.message);
         }

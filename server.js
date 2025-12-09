@@ -452,14 +452,21 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             console.log(`✅ Conversation item created for ${callId}`);
             const sessionForResponse = sessions.get(callId);
             if (sessionForResponse && sessionForResponse.openaiWs) {
-              sessionForResponse.openaiWs.send(JSON.stringify({
-                type: 'response.create',
-                response: {
-                  modalities: ['audio', 'text'] // Must include both audio and text
-                }
-              }));
-              console.log(`🎤 Requested audio+text response for ${callId}`);
+              // Wait a tiny bit to ensure item is fully created
+              setTimeout(() => {
+                sessionForResponse.openaiWs.send(JSON.stringify({
+                  type: 'response.create',
+                  response: {
+                    modalities: ['audio', 'text'] // Must include both audio and text
+                  }
+                }));
+                console.log(`🎤 Requested audio+text response for ${callId}`);
+              }, 100);
             }
+            break;
+          
+          case 'response.created':
+            console.log(`🎬 Response created for ${callId}`);
             break;
           
           case 'response.audio_transcript.delta':
@@ -476,10 +483,18 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           case 'response.audio.delta':
             // Audio chunk from OpenAI - this is what we need!
             if (message.delta) {
-              const audioBuffer = Buffer.from(message.delta, 'base64');
-              sendAudioToTelnyx(callId, audioBuffer);
-              // Log every chunk to confirm audio is being received
-              console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
+              try {
+                const audioBuffer = Buffer.from(message.delta, 'base64');
+                console.log(`📥 Received ${audioBuffer.length} bytes audio from OpenAI (${callId})`);
+                
+                // Resample 24kHz to 8kHz for Telnyx (sendAudioToTelnyx will handle sending)
+                const resampledAudio = resample24kHzTo8kHz(audioBuffer);
+                if (resampledAudio.length > 0) {
+                  sendAudioToTelnyx(callId, resampledAudio);
+                }
+              } catch (error) {
+                console.error(`❌ Error processing audio delta for ${callId}:`, error);
+              }
             }
             break;
           
@@ -489,6 +504,10 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           
           case 'response.done':
             console.log(`✅ Response complete for ${callId}`);
+            break;
+          
+          case 'error':
+            console.error(`❌ OpenAI error for ${callId}:`, JSON.stringify(message, null, 2));
             break;
           
           case 'conversation.item.input_audio_buffer.speech_started':
@@ -508,9 +527,9 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           default:
-            // Log unknown message types occasionally for debugging
-            if (message.type && !message.type.startsWith('session.') && Math.random() < 0.01) {
-              console.log(`ℹ️  OpenAI message type: ${message.type} for ${callId}`);
+            // Log ALL OpenAI messages for debugging (temporarily)
+            if (message.type) {
+              console.log(`ℹ️  OpenAI message: ${message.type} for ${callId}`, JSON.stringify(message).substring(0, 300));
             }
             break;
         }
@@ -549,24 +568,20 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       return;
     }
 
-    // OpenAI outputs 24kHz PCM16, but Telnyx requires 8kHz PCM16
-    // Resample from 24kHz to 8kHz
-    let telnyxAudioBuffer = audioBuffer;
-    try {
-      telnyxAudioBuffer = resample24kHzTo8kHz(audioBuffer);
-      if (telnyxAudioBuffer.length === 0) {
-        // Skip empty buffers
-        return;
-      }
-    } catch (error) {
-      console.error(`❌ Error resampling output audio for ${callId}:`, error);
+    // Audio is already resampled to 8kHz, send directly via WebSocket if available
+    if (audioBuffer.length === 0) {
       return;
     }
 
-    // Convert audio buffer to base64 (Telnyx expects base64-encoded PCM16 at 8kHz)
-    const audioBase64 = telnyxAudioBuffer.toString('base64');
+    // If Telnyx WebSocket is available, send raw PCM binary
+    if (session.telnyxWs && session.telnyxWs.readyState === WebSocket.OPEN) {
+      session.telnyxWs.send(audioBuffer);
+      console.log(`📤 Sent ${audioBuffer.length} bytes raw audio to Telnyx WebSocket (${callId})`);
+      return;
+    }
 
-    // Send to Telnyx using speak action (HTTP API for Call Control)
+    // Fallback to HTTP API (base64 encoded)
+    const audioBase64 = audioBuffer.toString('base64');
     await axios.post(
       `https://api.telnyx.com/v2/calls/${session.callControlId}/actions/speak`,
       {

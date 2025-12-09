@@ -438,7 +438,9 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
               // If we have a pending media stream start, do it now
               if (session.pendingMediaStart && session.pendingCallControlId) {
                 console.log(`🔄 Starting pending media stream for ${callId}`);
-                await startMediaStream(session.pendingCallControlId);
+                startMediaStream(session.pendingCallControlId).catch(error => {
+                  console.error(`❌ Error starting pending media stream for ${callId}:`, error);
+                });
                 session.pendingMediaStart = false;
                 session.pendingCallControlId = null;
               }

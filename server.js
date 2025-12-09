@@ -617,9 +617,15 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       return;
     }
 
-    // Fallback to HTTP API - but WebSocket should always be available
-    // If we reach here, log a warning
-    console.warn(`⚠️  Telnyx WebSocket not available for ${callId}, cannot send audio via HTTP API (requires WebSocket for media streaming)`);
+    // WebSocket not available - log detailed info for debugging
+    if (!session.telnyxWs) {
+      console.warn(`⚠️  Telnyx WebSocket not stored in session for ${callId}`);
+    } else if (session.telnyxWs.readyState !== WebSocket.OPEN) {
+      console.warn(`⚠️  Telnyx WebSocket not open for ${callId} (state: ${session.telnyxWs.readyState})`);
+    }
+    
+    // Buffer audio if WebSocket not ready yet (optional - for now just log)
+    console.warn(`⚠️  Cannot send audio to Telnyx for ${callId} - WebSocket not ready`);
 
   } catch (error) {
     console.error(`❌ Error sending audio to Telnyx for ${callId}:`, error.response?.data || error.message);

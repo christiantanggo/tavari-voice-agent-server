@@ -369,7 +369,8 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
       startedAt: new Date(),
       sessionReady: false, // Track if session is configured
       telnyxWs: null, // Will be set when Telnyx WebSocket connects
-      pendingMediaStart: false // Track if we need to start media stream when ready
+      pendingMediaStart: false, // Track if we need to start media stream when ready
+      hasActiveResponse: false // Track if there's an active response in progress
     });
 
     // WebSocket event handlers
@@ -449,16 +450,22 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             // Conversation item was created, now request audio response
             console.log(`✅ Conversation item created for ${callId}`, JSON.stringify(message).substring(0, 200));
             const sessionForResponse = sessions.get(callId);
-            if (sessionForResponse && sessionForResponse.openaiWs) {
-              // Request audio response immediately - don't wait
+            
+            // Only request response for user messages, and only if no active response exists
+            if (sessionForResponse && sessionForResponse.openaiWs && 
+                message.item && message.item.role === 'user' && 
+                !sessionForResponse.hasActiveResponse) {
+              // Request audio response
               sessionForResponse.openaiWs.send(JSON.stringify({
                 type: 'response.create',
                 response: {
-                  modalities: ['audio', 'text'], // Must include both audio and text
-                  instructions: undefined // Don't override instructions
+                  modalities: ['audio', 'text'] // Must include both audio and text
                 }
               }));
+              sessionForResponse.hasActiveResponse = true; // Mark as active
               console.log(`🎤 Requested audio+text response for ${callId}`);
+            } else if (sessionForResponse && sessionForResponse.hasActiveResponse) {
+              console.log(`⚠️  Skipping response.create - already has active response for ${callId}`);
             }
             break;
           
@@ -528,6 +535,11 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
           
           case 'response.done':
             console.log(`✅ Response complete for ${callId}`, JSON.stringify(message, null, 2).substring(0, 500));
+            // Reset active response flag
+            const sessionDone = sessions.get(callId);
+            if (sessionDone) {
+              sessionDone.hasActiveResponse = false;
+            }
             break;
           
           case 'error':

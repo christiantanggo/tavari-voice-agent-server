@@ -355,7 +355,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
     console.log(`🤖 Starting OpenAI Realtime session for ${callId}...`);
 
     // Create WebSocket connection to OpenAI Realtime API
-    const ws = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01', {
+      const ws = new WebSocket('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview', {
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'OpenAI-Beta': 'realtime=v1'

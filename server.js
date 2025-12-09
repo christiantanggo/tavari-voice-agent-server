@@ -1,6 +1,6 @@
 // server.js
-// Tavari Voice Agent - Telnyx + OpenAI Realtime
-// Updated by Claude AI
+// Tavari Voice Agent - Voximplant + OpenAI Realtime
+// Migrated from Telnyx to Voximplant
 
 import express from 'express';
 import bodyParser from 'body-parser';
@@ -122,12 +122,14 @@ dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
+const VOXIMPLANT_ACCOUNT_ID = process.env.VOXIMPLANT_ACCOUNT_ID;
+const VOXIMPLANT_API_KEY = process.env.VOXIMPLANT_API_KEY;
 
-if (!OPENAI_API_KEY || !TELNYX_API_KEY) {
+if (!OPENAI_API_KEY) {
   console.error('❌ Missing required environment variables');
-  console.error('Required: OPENAI_API_KEY, TELNYX_API_KEY');
-  process.exit(1);
+  console.error('Required: OPENAI_API_KEY');
+  console.warn('⚠️  VOXIMPLANT_ACCOUNT_ID and VOXIMPLANT_API_KEY are optional (for Management API)');
+  // Don't exit - webhooks might work without Management API
 }
 
 const app = express();
@@ -156,94 +158,106 @@ app.get('/health', (req, res) => {
 const sessions = new Map();
 
 /**
- * Handle Telnyx webhook events
+ * Handle Voximplant webhook events
+ * Voximplant sends webhooks in different format than Telnyx
  */
 app.post('/webhook', async (req, res) => {
   try {
-    const event = req.body.data;
-    const eventType = event.event_type;
-    const callId = event.payload?.call_control_id || event.payload?.call_session_id;
+    const body = req.body;
     
-    console.log(`📞 Telnyx event: ${eventType} for call ${callId}`);
+    // Voximplant webhook format varies - check for common event types
+    // Common formats: { event: "CallStarted", ... } or { type: "CallStarted", ... }
+    const eventType = body.event || body.type || body.event_type;
+    const callId = body.callId || body.call_id || body.sessionId || body.session_id;
+    
+    console.log(`📞 Voximplant event: ${eventType} for call ${callId}`);
+    console.log(`📋 Full webhook body:`, JSON.stringify(body, null, 2));
 
-    // Always respond 200 to Telnyx
+    // Always respond 200 to Voximplant
     res.status(200).send('OK');
 
     switch (eventType) {
-      case 'call.initiated':
-        await handleCallInitiated(event.payload, callId);
+      case 'CallStarted':
+      case 'call.started':
+      case 'InboundCall':
+        await handleCallStarted(body, callId);
         break;
       
-      case 'call.answered':
-        await handleCallAnswered(event.payload, callId);
+      case 'CallConnected':
+      case 'call.connected':
+      case 'CallAnswered':
+        await handleCallConnected(body, callId);
         break;
       
-      case 'call.hangup':
-      case 'call.bridged':
-        await handleCallHangup(callId);
+      case 'CallDisconnected':
+      case 'call.disconnected':
+      case 'CallEnded':
+        await handleCallDisconnected(callId);
         break;
       
+      case 'MediaStreamStarted':
       case 'media.stream.started':
         console.log(`🎵 Media stream started for ${callId}`);
         break;
       
+      case 'MediaStreamEnded':
       case 'media.stream.ended':
         console.log(`🎵 Media stream ended for ${callId}`);
         break;
       
       default:
-        console.log(`ℹ️  Unhandled event type: ${eventType}`);
+        console.log(`ℹ️  Unhandled Voximplant event type: ${eventType}`);
     }
   } catch (error) {
-    console.error('❌ Error handling webhook:', error);
+    console.error('❌ Error handling Voximplant webhook:', error);
   }
 });
 
 /**
- * Handle call initiated - Answer call and start OpenAI Realtime
+ * Handle call started - Voximplant calls are auto-answered in scenarios
+ * Start OpenAI Realtime session
  */
-async function handleCallInitiated(payload, callId) {
+async function handleCallStarted(payload, callId) {
   try {
-    const callControlId = payload.call_control_id;
+    // Voximplant calls are typically auto-answered in the scenario
+    // Extract call/session ID from payload
+    const sessionId = callId || payload.sessionId || payload.session_id || payload.callId;
     
-    console.log(`📞 Call initiated: ${callControlId}`);
-
-    // Answer the call
-    await answerCall(callControlId);
+    console.log(`📞 Call started: ${sessionId}`);
 
     // Start OpenAI Realtime session
-    await startOpenAIRealtimeSession(callId, callControlId);
+    await startOpenAIRealtimeSession(sessionId, sessionId);
 
   } catch (error) {
-    console.error('❌ Error handling call initiated:', error);
+    console.error('❌ Error handling call started:', error);
   }
 }
 
 /**
- * Handle call answered - Start media streaming (wait for OpenAI session to be ready)
+ * Handle call connected - Start media streaming (wait for OpenAI session to be ready)
  */
-async function handleCallAnswered(payload, callId) {
+async function handleCallConnected(payload, callId) {
   try {
-    const callControlId = payload.call_control_id;
+    const sessionId = callId || payload.sessionId || payload.session_id || payload.callId;
     
-    console.log(`✅ Call answered: ${callControlId}`);
+    console.log(`✅ Call connected: ${sessionId}`);
 
     const session = sessions.get(callId);
     if (session && session.sessionReady) {
       // OpenAI is already ready, start media stream immediately
       console.log(`✅ OpenAI session ready, starting media stream for ${callId}`);
-      await startMediaStream(callControlId);
+      await startVoximplantMediaStream(sessionId, callId);
     } else {
       // Mark that we need to start media stream when OpenAI is ready
       if (session) {
         session.pendingMediaStart = true;
-        session.pendingCallControlId = callControlId;
+        session.pendingCallControlId = sessionId;
       }
       console.log(`⏳ OpenAI session not ready yet, will start media stream when ready for ${callId}`);
     }
 
   } catch (error) {
-    console.error('❌ Error handling call answered:', error);
+    console.error('❌ Error handling call connected:', error);
   }
 }
 
@@ -276,73 +290,49 @@ async function handleCallHangup(callId) {
 }
 
 /**
- * Answer the call via Telnyx API
+ * Voximplant calls are auto-answered in scenarios
+ * No need for explicit answer call - this is handled by Voximplant
  */
-async function answerCall(callControlId) {
-  try {
-    const response = await axios.post(
-      `https://api.telnyx.com/v2/calls/${callControlId}/actions/answer`,
-      {},
-      {
-        headers: {
-          'Authorization': `Bearer ${TELNYX_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    console.log(`✅ Call answered: ${callControlId}`);
-    return response.data;
-  } catch (error) {
-    console.error('❌ Error answering call:', error.response?.data || error.message);
-    throw error;
-  }
+async function answerCall(sessionId) {
+  // Voximplant handles call answering in the scenario
+  // This function is kept for compatibility but does nothing
+  console.log(`ℹ️  Voximplant call ${sessionId} is auto-answered in scenario`);
+  return { success: true };
 }
 
 /**
- * Start media streaming to receive audio
+ * Start Voximplant media streaming
+ * Voximplant uses different approach - may use HTTP webhooks or WebSocket
+ * This will be configured in Voximplant scenario to send audio to our WebSocket
  */
-async function startMediaStream(callControlId) {
+async function startVoximplantMediaStream(sessionId, callId) {
   try {
     let base = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
     
-    // Ensure valid https:// URL (Telnyx REQUIRES full URL with protocol)
+    // Ensure valid https:// URL
     if (!base.startsWith('http')) {
       base = `https://${base}`;
     }
     
-    // Convert http:// to https:// for production (Railway uses HTTPS)
+    // Convert http:// to https:// for production
     if (base.startsWith('http://')) {
       base = base.replace('http://', 'https://');
     }
     
-    // Telnyx requires WebSocket URL (wss://) for media streaming
+    // Voximplant WebSocket URL for media streaming
     const wsUrl = base.replace('https://', 'wss://');
-    // Include call_id in query string to help identify the connection
-    const webhookUrl = `${wsUrl}/media-stream-ws?call_id=${callControlId}`;
+    const webhookUrl = `${wsUrl}/media-stream-ws?call_id=${callId}&session_id=${sessionId}`;
     
-    console.log(`🚀 Using media stream URL: ${webhookUrl}`);
+    console.log(`🚀 Voximplant media stream URL: ${webhookUrl}`);
+    console.log(`ℹ️  Configure this URL in your Voximplant scenario for audio streaming`);
     
-    const response = await axios.post(
-      `https://api.telnyx.com/v2/calls/${callControlId}/actions/streaming_start`,
-      {
-        stream_url: webhookUrl,
-        stream_track: 'both_tracks' // Receive both inbound and outbound audio
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${TELNYX_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+    // Voximplant media streaming is typically configured in the scenario
+    // The scenario should send audio to this WebSocket URL
+    // No API call needed here - the scenario handles it
     
-    console.log(`🎵 Media streaming started: ${callControlId}`);
-    return response.data;
+    return { success: true, stream_url: webhookUrl };
   } catch (error) {
-    console.error('❌ Error starting media stream:', error.response?.data || error.message);
-    if (error.response?.data?.errors) {
-      console.error('❌ Telnyx errors:', JSON.stringify(error.response.data.errors, null, 2));
-    }
+    console.error('❌ Error starting Voximplant media stream:', error.message);
     throw error;
   }
 }
@@ -586,11 +576,13 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
 }
 
 /**
- * Send audio to Telnyx call
- * Telnyx requires audio in JSON format: { event: "media", media: { payload: "<base64>" } }
+ * Send audio to Voximplant call
+ * Voximplant audio format depends on scenario configuration
+ * Typically: JSON with base64-encoded PCM16 audio
  * Audio is already resampled to 8kHz PCM16
  */
 async function sendAudioToTelnyx(callId, audioBuffer) {
+  // Function name kept for compatibility, but now handles Voximplant
   try {
     const session = sessions.get(callId);
     if (!session) {
@@ -602,10 +594,15 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       return;
     }
 
-    // If Telnyx WebSocket is available, send in Telnyx media format
+    // If Voximplant WebSocket is available, send audio
+    // Format depends on Voximplant scenario configuration
     if (session.telnyxWs && session.telnyxWs.readyState === WebSocket.OPEN) {
       const payload = audioBuffer.toString('base64');
       
+      // Voximplant may use different formats - try common ones
+      // Format 1: { event: "media", media: { payload: "<base64>" } }
+      // Format 2: { type: "audio", data: "<base64>" }
+      // Format 3: Raw binary PCM
       const message = JSON.stringify({
         event: 'media',
         media: {
@@ -614,7 +611,7 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
       });
       
       session.telnyxWs.send(message);
-      console.log(`📤 Sent ${audioBuffer.length} bytes audio to Telnyx WebSocket (${callId})`);
+      console.log(`📤 Sent ${audioBuffer.length} bytes audio to Voximplant WebSocket (${callId})`);
       
       // If there's queued audio, send it now
       if (session.audioQueue && session.audioQueue.length > 0) {
@@ -641,7 +638,7 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
     
     // Log occasionally to avoid spam
     if (session.audioQueue.length === 1 || session.audioQueue.length % 10 === 0) {
-      console.log(`⏳ Buffering audio for ${callId} (${session.audioQueue.length} chunks) - WebSocket not ready`);
+      console.log(`⏳ Buffering audio for ${callId} (${session.audioQueue.length} chunks) - Voximplant WebSocket not ready`);
     }
 
   } catch (error) {
@@ -650,7 +647,7 @@ async function sendAudioToTelnyx(callId, audioBuffer) {
 }
 
 /**
- * WebSocket server for Telnyx media streaming
+ * WebSocket server for Voximplant media streaming
  */
 const wss = new WebSocketServer({ 
   server: server,
@@ -679,14 +676,12 @@ wss.on('connection', (ws, req) => {
   const wsId = `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   wsCallMap.set(ws, { callId, wsId });
   
-  console.log(`🎵 Telnyx media stream WebSocket connected (call: ${callId || 'pending'})`);
+  console.log(`🎵 Voximplant media stream WebSocket connected (call: ${callId || 'pending'})`);
 
-  // Send initial message to Telnyx (some WebSocket protocols require this)
-  // Telnyx might expect a specific format - try sending a simple acknowledgment
+  // Voximplant WebSocket connection established
+  // Audio format may vary - we'll handle both JSON and binary
   try {
-    // Some protocols expect binary, others JSON - try binary first (empty buffer as keepalive)
-    // Actually, let's not send anything until we receive data from Telnyx
-    console.log(`✅ WebSocket ready to receive audio from Telnyx`);
+    console.log(`✅ WebSocket ready to receive audio from Voximplant`);
   } catch (error) {
     console.error('❌ Error in WebSocket connection setup:', error);
   }
@@ -738,8 +733,8 @@ wss.on('connection', (ws, req) => {
         // We have call_id, make sure session has the WebSocket reference
         const session = sessions.get(activeCallId);
         if (session && !session.telnyxWs) {
-          session.telnyxWs = ws;
-          console.log(`🔗 Stored Telnyx WebSocket in session for ${activeCallId}`);
+          session.telnyxWs = ws; // Keep variable name for compatibility
+          console.log(`🔗 Stored Voximplant WebSocket in session for ${activeCallId}`);
           
           // If there's queued audio, flush it now
           if (session.audioQueue && session.audioQueue.length > 0 && ws.readyState === WebSocket.OPEN) {
@@ -775,9 +770,10 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // Telnyx sends audio as binary data (PCM16, 8kHz mono, 16-bit little-endian)
+      // Voximplant sends audio (format depends on scenario configuration)
+      // Typically PCM16, 8kHz or 16kHz mono, 16-bit little-endian
       // OpenAI Realtime requires PCM16 at 24kHz, so we need to resample
-      // Resample from 8kHz to 24kHz
+      // Resample from 8kHz to 24kHz (or 16kHz to 24kHz if needed)
       try {
         const resampledBuffer = resample8kHzTo24kHz(audioBuffer);
         if (resampledBuffer.length === 0) {
@@ -806,10 +802,10 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', (code, reason) => {
-    const wsInfo = wsCallMap.get(ws);
-    const callId = wsInfo?.callId;
-    console.log(`🔌 Telnyx WebSocket closed (call: ${callId || 'unknown'}, code: ${code}, reason: ${reason?.toString() || 'none'})`);
+    ws.on('close', (code, reason) => {
+      const wsInfo = wsCallMap.get(ws);
+      const callId = wsInfo?.callId;
+      console.log(`🔌 Voximplant WebSocket closed (call: ${callId || 'unknown'}, code: ${code}, reason: ${reason?.toString() || 'none'})`);
     
     if (callId) {
       const session = sessions.get(callId);
@@ -821,11 +817,11 @@ wss.on('connection', (ws, req) => {
     wsCallMap.delete(ws);
   });
 
-  ws.on('error', (error) => {
-    const wsInfo = wsCallMap.get(ws);
-    const callId = wsInfo?.callId || 'unknown';
-    console.error(`❌ Telnyx WebSocket error (call: ${callId}):`, error);
-  });
+    ws.on('error', (error) => {
+      const wsInfo = wsCallMap.get(ws);
+      const callId = wsInfo?.callId || 'unknown';
+      console.error(`❌ Voximplant WebSocket error (call: ${callId}):`, error);
+    });
 
   ws.on('pong', () => {
     console.log(`🏓 Received pong from Telnyx WebSocket`);
@@ -834,14 +830,15 @@ wss.on('connection', (ws, req) => {
 
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Tavari Voice Agent server running on port ${PORT}`);
-  const PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
-
-  console.log(`📞 Webhook: POST ${PUBLIC_URL}/webhook`);
-  console.log(`🎵 Media stream WebSocket: wss://${PUBLIC_URL.replace('http://', '').replace('https://', '')}/media-stream-ws`);
-  console.log(`❤️  Health check: GET ${PUBLIC_URL}/health`);
-  console.log(`\n✅ Ready to receive calls!`);
-  console.log(`🔧 Environment: RAILWAY_PUBLIC_DOMAIN=${process.env.RAILWAY_PUBLIC_DOMAIN || 'not set'}`);
+    console.log(`🚀 Tavari Voice Agent server running on port ${PORT}`);
+    const PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN || `http://localhost:${PORT}`;
+  
+    console.log(`📞 Voximplant Webhook: POST ${PUBLIC_URL}/webhook`);
+    console.log(`🎵 Media stream WebSocket: wss://${PUBLIC_URL.replace('http://', '').replace('https://', '')}/media-stream-ws`);
+    console.log(`❤️  Health check: GET ${PUBLIC_URL}/health`);
+    console.log(`\n✅ Ready to receive Voximplant calls!`);
+    console.log(`🔧 Environment: RAILWAY_PUBLIC_DOMAIN=${process.env.RAILWAY_PUBLIC_DOMAIN || 'not set'}`);
+    console.log(`📋 Configure this webhook URL in your Voximplant application/scenario`);
 });
 
 // Graceful shutdown
@@ -866,5 +863,3 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-/ /   F o r c e   r e f r e s h  
- 

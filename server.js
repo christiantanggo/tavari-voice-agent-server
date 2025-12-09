@@ -586,44 +586,56 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
 
 /**
  * Send audio to Telnyx call
- * OpenAI outputs 24kHz PCM16, Telnyx requires 8kHz PCM16
+ * Telnyx requires audio in JSON format: { event: "media", media: { payload: "<base64>" } }
+ * Audio is already resampled to 8kHz PCM16
  */
 async function sendAudioToTelnyx(callId, audioBuffer) {
   try {
     const session = sessions.get(callId);
-    if (!session || !session.callControlId) {
+    if (!session) {
       console.warn(`⚠️  No session found for ${callId}`);
       return;
     }
 
-    // Audio is already resampled to 8kHz, send directly via WebSocket if available
     if (audioBuffer.length === 0) {
       return;
     }
 
-    // If Telnyx WebSocket is available, send raw PCM binary
+    // If Telnyx WebSocket is available, send in Telnyx media format
     if (session.telnyxWs && session.telnyxWs.readyState === WebSocket.OPEN) {
-      session.telnyxWs.send(audioBuffer);
-      console.log(`📤 Sent ${audioBuffer.length} bytes raw audio to Telnyx WebSocket (${callId})`);
+      const payload = audioBuffer.toString('base64');
+      
+      const message = JSON.stringify({
+        event: 'media',
+        media: {
+          payload
+        }
+      });
+      
+      session.telnyxWs.send(message);
+      console.log(`📤 Sent ${audioBuffer.length} bytes audio to Telnyx WebSocket (${callId})`);
       return;
     }
 
     // Fallback to HTTP API (base64 encoded)
-    const audioBase64 = audioBuffer.toString('base64');
-    await axios.post(
-      `https://api.telnyx.com/v2/calls/${session.callControlId}/actions/speak`,
-      {
-        payload: audioBase64,
-        payload_type: 'base64',
-        voice: 'female'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${TELNYX_API_KEY}`,
-          'Content-Type': 'application/json'
+    if (session.callControlId) {
+      const audioBase64 = audioBuffer.toString('base64');
+      await axios.post(
+        `https://api.telnyx.com/v2/calls/${session.callControlId}/actions/speak`,
+        {
+          payload: audioBase64,
+          payload_type: 'base64',
+          voice: 'female'
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${TELNYX_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
         }
-      }
-    );
+      );
+      console.log(`📤 Sent ${audioBuffer.length} bytes audio to Telnyx HTTP API (${callId})`);
+    }
 
   } catch (error) {
     console.error(`❌ Error sending audio to Telnyx for ${callId}:`, error.response?.data || error.message);

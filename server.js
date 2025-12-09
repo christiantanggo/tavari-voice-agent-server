@@ -4,9 +4,9 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import WebSocket from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import dotenv from 'dotenv';
-import { createServer } from 'http';
+import http from 'http';
 
 dotenv.config();
 
@@ -21,10 +21,10 @@ if (!OPENAI_API_KEY || !TELNYX_API_KEY) {
 }
 
 const app = express();
-const server = createServer(app);
+const server = http.createServer(app);
 
 // Create WebSocket server for media streaming
-const wss = new WebSocket.Server({ 
+const wss = new WebSocketServer({ 
   server,
   path: '/media-stream-ws'
 });

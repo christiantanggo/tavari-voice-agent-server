@@ -677,6 +677,9 @@ wss.on('connection', (ws, req) => {
   wsCallMap.set(ws, { callId, wsId });
   
   console.log(`🎵 Voximplant media stream WebSocket connected (call: ${callId || 'pending'})`);
+  
+  // Voximplant may send initial connection message - handle it
+  // Some providers send JSON control messages first
 
   // Voximplant WebSocket connection established
   // Audio format may vary - we'll handle both JSON and binary
@@ -698,7 +701,7 @@ wss.on('connection', (ws, req) => {
         // Could be JSON message - try to parse
         try {
           const jsonMessage = JSON.parse(data);
-          console.log(`📨 Telnyx JSON message:`, jsonMessage);
+          console.log(`📨 Voximplant JSON message:`, jsonMessage);
           // Handle JSON messages if needed (e.g., connection status)
           return;
         } catch (e) {

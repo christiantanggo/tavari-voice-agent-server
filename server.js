@@ -415,8 +415,23 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (session) {
               session.sessionReady = true;
               
-              // Don't send greeting as text - let OpenAI respond naturally to user input
-              // The greeting will come from OpenAI's first response to user audio
+              // Send greeting immediately - create a user message that triggers AI response
+              // We'll create an empty user message to trigger the AI's greeting
+              ws.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'message',
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'input_text',
+                      text: '' // Empty text to trigger greeting
+                    }
+                  ]
+                }
+              }));
+              
+              console.log(`🎤 Sent trigger message for greeting (${callId})`);
               
               // If we have a pending media stream start, do it now
               if (session.pendingMediaStart && session.pendingCallControlId) {

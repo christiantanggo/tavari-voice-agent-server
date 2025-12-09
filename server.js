@@ -415,8 +415,8 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             if (session) {
               session.sessionReady = true;
               
-              // Send greeting immediately - create a user message that triggers AI response
-              // We'll create an empty user message to trigger the AI's greeting
+              // Send greeting immediately - create a simple user message to trigger AI response
+              // Using a minimal trigger phrase that will make the AI greet naturally
               ws.send(JSON.stringify({
                 type: 'conversation.item.create',
                 item: {
@@ -425,7 +425,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
                   content: [
                     {
                       type: 'input_text',
-                      text: '' // Empty text to trigger greeting
+                      text: 'hello' // Simple trigger to get AI to respond with greeting
                     }
                   ]
                 }
@@ -463,8 +463,16 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.created':
-            console.log(`🎬 Response created for ${callId}`, JSON.stringify(message).substring(0, 200));
+            console.log(`🎬 Response created for ${callId}`, JSON.stringify(message, null, 2).substring(0, 500));
             // Response is created, audio should start flowing soon
+            break;
+          
+          case 'response.output_item.added':
+            console.log(`📦 Response output item added for ${callId}:`, JSON.stringify(message).substring(0, 300));
+            break;
+          
+          case 'response.output_item.done':
+            console.log(`✅ Response output item done for ${callId}:`, JSON.stringify(message).substring(0, 300));
             break;
           
           case 'response.output_item.added':
@@ -519,7 +527,7 @@ async function startOpenAIRealtimeSession(callId, callControlId) {
             break;
           
           case 'response.done':
-            console.log(`✅ Response complete for ${callId}`);
+            console.log(`✅ Response complete for ${callId}`, JSON.stringify(message, null, 2).substring(0, 500));
             break;
           
           case 'error':
